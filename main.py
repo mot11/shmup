@@ -6,20 +6,26 @@ import sys
 #  Config & Constants
 # ---------------------------
 WIDTH, HEIGHT = 480, 640
-FPS = 60
-PLAYER_SPEED = 5
-BULLET_SPEED = -10
-ENEMY_SPEED = 3
-SPAWN_INTERVAL = 1000  # ms between enemy spawns
+TARGET_FPS = 60  # desired frames‑per‑second cap
+
+# Speeds are now **pixels per second** (physics‑driven)
+PLAYER_SPEED = 300      # px/s
+BULLET_SPEED = -600     # px/s (negative = upward)
+ENEMY_SPEED = 150       # px/s
+
+SPAWN_INTERVAL = 1000   # ms between enemy spawns
 SPAWN_ENEMY_EVENT = pygame.USEREVENT + 1
+TEXT_COLOR = (255, 255, 255)
 
 # ---------------------------
 #  Init
 # ---------------------------
 pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+# Use DOUBLEBUF + SCALED to reduce tearing & improve timing accuracy
+flags = pygame.DOUBLEBUF | pygame.HWSURFACE | pygame.SCALED
+screen = pygame.display.set_mode((WIDTH, HEIGHT), flags, vsync=1)
 pygame.display.set_caption("Simple Shmup")
-clock = pygame.time.Clock()
+clock = pygame.time.Clock()  # regulates FPS & measures real frame time
 font = pygame.font.SysFont("arial", 24)
 
 # ---------------------------
@@ -34,9 +40,10 @@ class Player(pygame.sprite.Sprite):
         self.image.fill((0, 255, 0))
         self.rect = self.image.get_rect(midbottom=(WIDTH // 2, HEIGHT - 10))
 
-    def update(self):
+    def update(self, dt):
+        # dt in **seconds**
         keys = pygame.key.get_pressed()
-        dx = (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * PLAYER_SPEED
+        dx = (keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]) * PLAYER_SPEED * dt
         self.rect.x += dx
         self.rect.clamp_ip(screen.get_rect())  # keep on‑screen
 
@@ -54,9 +61,11 @@ class Bullet(pygame.sprite.Sprite):
         self.image = pygame.Surface((4, 10))
         self.image.fill((255, 255, 0))
         self.rect = self.image.get_rect(midbottom=pos)
+        self.pos = pygame.Vector2(self.rect.topleft)
 
-    def update(self):
-        self.rect.y += BULLET_SPEED
+    def update(self, dt):
+        self.pos.y += BULLET_SPEED * dt
+        self.rect.y = int(self.pos.y)
         if self.rect.bottom < 0:
             self.kill()
 
@@ -69,9 +78,11 @@ class Enemy(pygame.sprite.Sprite):
         self.image = pygame.Surface((30, 20))
         self.image.fill((255, 0, 0))
         self.rect = self.image.get_rect(midbottom=(random.randint(20, WIDTH - 20), -10))
+        self.pos = pygame.Vector2(self.rect.topleft)
 
-    def update(self):
-        self.rect.y += ENEMY_SPEED
+    def update(self, dt):
+        self.pos.y += ENEMY_SPEED * dt
+        self.rect.y = int(self.pos.y)
         if self.rect.top > HEIGHT:
             self.kill()
 
@@ -81,7 +92,7 @@ class Enemy(pygame.sprite.Sprite):
 # ---------------------------
 
 def draw_text(surf, text, pos):
-    img = font.render(text, True, (255, 255, 255))
+    img = font.render(text, True, TEXT_COLOR)
     surf.blit(img, pos)
 
 
@@ -91,6 +102,7 @@ def draw_text(surf, text, pos):
 
 def main():
     global all_sprites, bullets, enemies
+
     all_sprites = pygame.sprite.Group()
     bullets = pygame.sprite.Group()
     enemies = pygame.sprite.Group()
@@ -106,7 +118,10 @@ def main():
     game_over = False
 
     while running:
-        clock.tick(FPS)
+        # Regulate and measure FPS in one call
+        dt_ms = clock.tick(TARGET_FPS)  # milliseconds since last frame
+        dt = dt_ms / 1000.0            # seconds for physics maths
+        fps_now = clock.get_fps()      # smoothed FPS value
 
         # --- events ---
         for event in pygame.event.get():
@@ -124,7 +139,7 @@ def main():
 
         # --- update ---
         if not game_over:
-            all_sprites.update()
+            all_sprites.update(dt)  # pass dt to every sprite
             # bullet ↔ enemy collisions
             hits = pygame.sprite.groupcollide(enemies, bullets, True, True)
             score += len(hits)
@@ -136,6 +151,7 @@ def main():
         screen.fill((20, 20, 40))
         all_sprites.draw(screen)
         draw_text(screen, f"Score: {score}", (10, 10))
+        draw_text(screen, f"FPS: {fps_now:5.1f}", (WIDTH - 110, 10))
         if game_over:
             draw_text(screen, "GAME OVER – press R to restart", (WIDTH // 2 - 150, HEIGHT // 2))
 
